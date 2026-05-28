@@ -4,7 +4,6 @@ import { useState, useEffect, useCallback } from "react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Plus, Trash2, Cpu, TrendingUp, TrendingDown, DollarSign, Zap, RefreshCw } from "lucide-react"
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from "recharts"
@@ -32,12 +31,10 @@ const DEFAULT_GPUS: GPU[] = [
   { id: "1", name: "H100 SXM 80GB", hashrateTH: 246, costPerHour: 3.29, count: 1 },
 ]
 
-// GPU 预设：仅 H100 为实测值，其余为社区参考值，需自测验证
+// GPU 预设：H100 为 RunPod 实测值；RTX 4090 为用户报告值；其余型号算力未知，请自测后手动填入
 const GPU_PRESETS = [
-  { name: "H100 SXM 80GB", hashrateTH: 246, costPerHour: 3.29, verified: true },
-  { name: "RTX 4090", hashrateTH: 200, costPerHour: 0.69, verified: false },
-  { name: "RTX 5090", hashrateTH: 230, costPerHour: 0.99, verified: false },
-  { name: "RTX 3090", hashrateTH: 130, costPerHour: 0.46, verified: false },
+  { name: "H100 SXM 80GB", hashrateTH: 246, costPerHour: 3.29, note: "RunPod 实测" },
+  { name: "RTX 4090", hashrateTH: 200, costPerHour: 0.69, note: "用户报告，建议自测" },
 ]
 
 function generateId() {
@@ -113,21 +110,11 @@ export default function PearlDashboard() {
   // breakeven price: cost = prl * myDailyPRL => prl = cost / myDailyPRL
   const breakevenPrice = myDailyPRL > 0 ? totalCostPerDay / myDailyPRL : 0
 
-  // breakeven hashrate: find TH/s such that revenue = cost at current price
-  // myShare = X / (networkTH + X), dailyPRL = dailyNetworkPRL * X/(networkTH+X) * prlPrice = costPerDay
-  // Solve: X = networkTH * costPerDay / (dailyNetworkPRL * prlPrice - costPerDay)
-  // But costPerDay changes with count - assume single unit cost for reference
-  const singleUnitCostPerDay = totalCostPerDay // user's current total config
-  const breakevenHashrate = prlPrice > 0
-    ? (networkTH * singleUnitCostPerDay) / (dailyNetworkPRL * prlPrice - singleUnitCostPerDay)
-    : Infinity
-
-  // Chart: profit vs PRL price ($0 to $3)
+  // Chart: revenue vs PRL price ($0 to $3), price as number for accurate ReferenceLine positioning
   const chartData = Array.from({ length: 61 }, (_, i) => {
-    const price = i * 0.05
+    const price = parseFloat((i * 0.05).toFixed(2))
     const rev = myDailyPRL * price
-    const profit = rev - totalCostPerDay
-    return { price: price.toFixed(2), profit: parseFloat(profit.toFixed(2)), revenue: parseFloat(rev.toFixed(2)), cost: parseFloat(totalCostPerDay.toFixed(2)) }
+    return { price, revenue: parseFloat(rev.toFixed(2)), cost: parseFloat(totalCostPerDay.toFixed(2)) }
   })
 
   // ---- GPU Management ----
@@ -266,13 +253,13 @@ export default function PearlDashboard() {
                         key={preset.name}
                         onClick={() => setGpus(prev => [...prev, { id: generateId(), name: preset.name, hashrateTH: preset.hashrateTH, costPerHour: preset.costPerHour, count: 1 }])}
                         className="flex items-center gap-1 text-xs px-2.5 py-1 rounded border border-zinc-700 text-zinc-300 hover:border-violet-500 hover:text-violet-300 transition-colors bg-zinc-800"
+                        title={preset.note}
                       >
                         <Plus className="w-3 h-3" />
                         {preset.name}
-                        {preset.verified
-                          ? <span className="text-emerald-400 text-[10px]">✓实测</span>
-                          : <span className="text-yellow-600 text-[10px]">参考</span>
-                        }
+                        <span className={`text-[10px] ${preset.note.includes("实测") ? "text-emerald-400" : "text-yellow-600"}`}>
+                          {preset.note.includes("实测") ? "✓实测" : "参考"}
+                        </span>
                       </button>
                     ))}
                   </div>
@@ -351,8 +338,9 @@ export default function PearlDashboard() {
               ))}
             </div>
 
-            {/* Breakeven Cards */}
+            {/* Breakeven + Efficiency */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* 盈亏平衡 PRL 价格 */}
               <Card className="bg-zinc-900 border-zinc-800">
                 <CardContent className="pt-5 pb-5">
                   <div className="flex items-center justify-between mb-3">
@@ -378,6 +366,12 @@ export default function PearlDashboard() {
                         {breakevenPrice > 0 ? ((prlPrice / breakevenPrice - 1) * 100).toFixed(1) : "N/A"}%
                       </span>
                     </div>
+                    <div className="flex justify-between text-xs">
+                      <span className="text-zinc-500">日净利润</span>
+                      <span className={isProfit ? "text-emerald-400" : "text-red-400"}>
+                        {isProfit ? "+" : ""}${myDailyProfit.toFixed(2)} / 月{isProfit ? "+" : ""}${(myDailyProfit * 30).toFixed(0)}
+                      </span>
+                    </div>
                     <div className="w-full bg-zinc-700 rounded-full h-1.5 mt-2">
                       <div
                         className={`h-1.5 rounded-full transition-all ${prlPrice >= breakevenPrice ? "bg-emerald-500" : "bg-red-500"}`}
@@ -393,78 +387,89 @@ export default function PearlDashboard() {
                 </CardContent>
               </Card>
 
+              {/* 单台 GPU 效率对比（帮助选卡） */}
               <Card className="bg-zinc-900 border-zinc-800">
                 <CardContent className="pt-5 pb-5">
                   <div className="flex items-center justify-between mb-3">
-                    <div>
-                      <div className="text-xs text-zinc-500">盈亏平衡算力需求</div>
-                      <div className="text-2xl font-bold text-zinc-100 mt-1">
-                        {breakevenHashrate > 0 && isFinite(breakevenHashrate)
-                          ? `${breakevenHashrate.toFixed(0)} TH/s`
-                          : prlPrice === 0 ? "∞" : "已盈利"
-                        }
+                    <div className="text-xs text-zinc-500">单台 GPU 效率对比</div>
+                    <div className="text-[10px] text-zinc-600">基于全网实时算力 · @${prlPrice}/PRL</div>
+                  </div>
+                  {gpus.length === 0 ? (
+                    <p className="text-xs text-zinc-600 text-center py-4">暂无配置</p>
+                  ) : (
+                    <div className="space-y-1">
+                      <div className="grid grid-cols-4 text-[10px] text-zinc-600 pb-1.5 border-b border-zinc-800">
+                        <span>型号</span>
+                        <span className="text-right">效率</span>
+                        <span className="text-right">日收益</span>
+                        <span className="text-right">日利润</span>
+                      </div>
+                      {gpus.map(gpu => {
+                        // 单台 GPU 对网络的贡献（独立计算，不叠加其他卡）
+                        const unitShare = gpu.hashrateTH / (networkTH + gpu.hashrateTH)
+                        const unitDailyPRL = dailyNetworkPRL * unitShare
+                        const unitRevenue = unitDailyPRL * prlPrice
+                        const unitCost = gpu.costPerHour * 24
+                        const unitProfit = unitRevenue - unitCost
+                        // 效率 = TH/s ÷ ($/天)，越高越划算
+                        const efficiency = unitCost > 0 ? gpu.hashrateTH / unitCost : 0
+                        return (
+                          <div key={gpu.id} className="grid grid-cols-4 text-xs items-center py-1 border-b border-zinc-800/50 last:border-0">
+                            <span className="text-zinc-300 text-[11px] truncate pr-1">{gpu.name}</span>
+                            <span className="text-right text-zinc-400 tabular-nums">{efficiency.toFixed(1)}<span className="text-zinc-600 text-[9px]"> TH/$d</span></span>
+                            <span className="text-right text-yellow-400 tabular-nums">${unitRevenue.toFixed(2)}</span>
+                            <span className={`text-right font-medium tabular-nums ${unitProfit >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                              {unitProfit >= 0 ? "+" : ""}${unitProfit.toFixed(2)}
+                            </span>
+                          </div>
+                        )
+                      })}
+                      <div className="text-[10px] text-zinc-600 pt-1.5">
+                        效率 = TH/s ÷ ($/天)，越高性价比越好
                       </div>
                     </div>
-                    <Badge variant={totalMyHashrateTH >= breakevenHashrate ? "success" : "warning"} className="text-xs">
-                      {totalMyHashrateTH >= breakevenHashrate ? "已达标" : "未达标"}
-                    </Badge>
-                  </div>
-                  <div className="space-y-1.5 text-xs">
-                    <div className="flex justify-between">
-                      <span className="text-zinc-500">当前算力</span>
-                      <span className="text-zinc-300">{totalMyHashrateTH.toFixed(0)} TH/s</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-zinc-500">差距</span>
-                      <span className={totalMyHashrateTH >= breakevenHashrate ? "text-emerald-400" : "text-yellow-400"}>
-                        {isFinite(breakevenHashrate) && breakevenHashrate > 0
-                          ? `${totalMyHashrateTH >= breakevenHashrate ? "+" : ""}${(totalMyHashrateTH - breakevenHashrate).toFixed(0)} TH/s`
-                          : "—"}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-zinc-500">ROI (30天)</span>
-                      <span className={isProfit ? "text-emerald-400" : "text-red-400"}>
-                        {totalCostPerDay > 0 ? `${((myDailyProfit * 30 / (totalCostPerDay * 30)) * 100).toFixed(1)}%` : "—"}
-                      </span>
-                    </div>
-                  </div>
+                  )}
                 </CardContent>
               </Card>
             </div>
 
-            {/* Profit Chart */}
+            {/* Revenue vs Cost Chart */}
             <Card className="bg-zinc-900 border-zinc-800">
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm text-zinc-300">利润 vs PRL 价格</CardTitle>
+                <CardTitle className="text-sm text-zinc-300">日收益 vs PRL 价格</CardTitle>
                 <CardDescription className="text-xs text-zinc-500">
-                  基于当前算力配置 · 盈亏平衡点 ${breakevenPrice.toFixed(4)}
+                  绿色区域 = 日收益 · 红虚线 = 日成本 ${totalCostPerDay.toFixed(2)} · 紫线 = 盈亏平衡 ${breakevenPrice.toFixed(4)}
                 </CardDescription>
               </CardHeader>
               <CardContent>
                 <ResponsiveContainer width="100%" height={220}>
                   <AreaChart data={chartData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
                     <defs>
-                      <linearGradient id="profitGradient" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#10b981" stopOpacity={0.3} />
+                      <linearGradient id="revenueGradient" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#10b981" stopOpacity={0.35} />
                         <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
-                      </linearGradient>
-                      <linearGradient id="lossGradient" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#ef4444" stopOpacity={0.3} />
-                        <stop offset="95%" stopColor="#ef4444" stopOpacity={0} />
                       </linearGradient>
                     </defs>
                     <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
-                    <XAxis dataKey="price" stroke="#52525b" tick={{ fontSize: 10 }} tickFormatter={v => `$${v}`} interval={11} />
+                    <XAxis dataKey="price" type="number" domain={[0, 3]} stroke="#52525b" tick={{ fontSize: 10 }} tickFormatter={v => `$${v}`} tickCount={7} />
                     <YAxis stroke="#52525b" tick={{ fontSize: 10 }} tickFormatter={v => `$${v}`} />
                     <Tooltip
                       contentStyle={{ backgroundColor: "#18181b", border: "1px solid #3f3f46", borderRadius: "8px", fontSize: "12px" }}
-                      labelFormatter={v => `PRL 价格: $${v}`}
-                      formatter={(val, name) => [`$${Number(val).toFixed(2)}`, name === "profit" ? "日净利润" : name === "revenue" ? "日收益" : "日成本"]}
+                      labelFormatter={v => `PRL 价格: $${Number(v).toFixed(2)}`}
+                      formatter={(val, name) => [`$${Number(val).toFixed(2)}`, name === "revenue" ? "日收益" : "日成本"]}
                     />
-                    <ReferenceLine y={0} stroke="#6b7280" strokeDasharray="4 4" label={{ value: "盈亏平衡", position: "insideTopRight", fontSize: 10, fill: "#6b7280" }} />
-                    <ReferenceLine x={prlPrice.toFixed(2)} stroke="#8b5cf6" strokeDasharray="4 4" label={{ value: `当前 $${prlPrice}`, position: "insideTopLeft", fontSize: 10, fill: "#8b5cf6" }} />
-                    <Area type="monotone" dataKey="profit" stroke={isProfit ? "#10b981" : "#ef4444"} fill={isProfit ? "url(#profitGradient)" : "url(#lossGradient)"} strokeWidth={2} dot={false} />
+                    {/* 日成本水平线 */}
+                    <ReferenceLine y={totalCostPerDay} stroke="#ef4444" strokeDasharray="5 3" strokeWidth={1.5}
+                      label={{ value: `成本 $${totalCostPerDay.toFixed(2)}`, position: "insideTopRight", fontSize: 10, fill: "#ef4444" }} />
+                    {/* 盈亏平衡价格竖线 */}
+                    {breakevenPrice > 0 && breakevenPrice <= 3 && (
+                      <ReferenceLine x={breakevenPrice} stroke="#8b5cf6" strokeDasharray="4 4" strokeWidth={1.5}
+                        label={{ value: `盈亏 $${breakevenPrice.toFixed(3)}`, position: "insideTopLeft", fontSize: 10, fill: "#8b5cf6" }} />
+                    )}
+                    {/* 当前 PRL 价格竖线 */}
+                    <ReferenceLine x={prlPrice} stroke="#6b7280" strokeDasharray="2 2"
+                      label={{ value: `当前 $${prlPrice}`, position: "insideBottomRight", fontSize: 10, fill: "#a1a1aa" }} />
+                    <Area type="monotone" dataKey="revenue" stroke="#10b981" fill="url(#revenueGradient)" strokeWidth={2} dot={false} name="revenue" />
                   </AreaChart>
                 </ResponsiveContainer>
               </CardContent>
