@@ -27,14 +27,16 @@ interface NetworkStats {
   lastUpdated: string
 }
 
-const DEFAULT_GPUS: GPU[] = [
-  { id: "1", name: "H100 SXM 80GB", hashrateTH: 246, costPerHour: 3.29, count: 1 },
-]
+const DEFAULT_GPUS: GPU[] = []
 
-// GPU 预设：H100 为 RunPod 实测值；RTX 4090 为用户报告值；其余型号算力未知，请自测后手动填入
+// GPU 预设（实测来源标注）
+// H100 SXM 80GB: RunPod 实测 246 TH/s
+// RTX 4090: matpool 实测均值 (27589机5卡=1250TH→250TH/卡; 26070机2卡=492TH→246TH/卡) 取 250 TH/s
+// H200 SXM: Spheron 实测进行中，当前为基于硬件规格的估算值，待矿池数据更新
 const GPU_PRESETS = [
   { name: "H100 SXM 80GB", hashrateTH: 246, costPerHour: 3.29, note: "RunPod 实测" },
-  { name: "RTX 4090", hashrateTH: 200, costPerHour: 0.69, note: "用户报告，建议自测" },
+  { name: "H200 SXM", hashrateTH: 340, costPerHour: 4.00, note: "预估·待实测" },
+  { name: "RTX 4090", hashrateTH: 250, costPerHour: 0.30, note: "matpool 实测 ¥2.2/h" },
 ]
 
 function generateId() {
@@ -110,8 +112,8 @@ export default function PearlDashboard() {
   // breakeven price: cost = prl * myDailyPRL => prl = cost / myDailyPRL
   const breakevenPrice = myDailyPRL > 0 ? totalCostPerDay / myDailyPRL : 0
 
-  // Chart: revenue vs PRL price ($0 to $3), price as number for accurate ReferenceLine positioning
-  const chartData = Array.from({ length: 61 }, (_, i) => {
+  // Chart: revenue vs PRL price ($0 to $5), price as number for accurate ReferenceLine positioning
+  const chartData = Array.from({ length: 101 }, (_, i) => {
     const price = parseFloat((i * 0.05).toFixed(2))
     const rev = myDailyPRL * price
     return { price, revenue: parseFloat(rev.toFixed(2)), cost: parseFloat(totalCostPerDay.toFixed(2)) }
@@ -156,6 +158,15 @@ export default function PearlDashboard() {
             {network.lastUpdated && (
               <span className="text-xs text-zinc-500">更新于 {network.lastUpdated}</span>
             )}
+            <a
+              href="https://x.com/0x_JBCat"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded border border-zinc-700 bg-zinc-900 text-zinc-300 hover:border-sky-500 hover:text-sky-400 transition-colors"
+            >
+              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.744l7.73-8.835L1.254 2.25H8.08l4.253 5.622 5.91-5.622zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+              关注 @0x_JBCat
+            </a>
             <Button variant="outline" size="sm" onClick={fetchNetworkStats} disabled={network.loading} className="border-zinc-700 bg-zinc-900 text-zinc-300 hover:bg-zinc-800">
               <RefreshCw className={`w-3.5 h-3.5 ${network.loading ? "animate-spin" : ""}`} />
               刷新网络
@@ -246,7 +257,7 @@ export default function PearlDashboard() {
               <CardContent className="space-y-3">
                 {/* GPU 预设快速添加 */}
                 <div>
-                  <p className="text-xs text-zinc-500 mb-2">快速添加（H100 为实测值，其余为社区参考，请自测验证）</p>
+                  <p className="text-xs text-zinc-500 mb-2">快速添加（H100/4090 为实测值，H200 为预估值待矿池更新）</p>
                   <div className="flex flex-wrap gap-1.5">
                     {GPU_PRESETS.map(preset => (
                       <button
@@ -346,7 +357,12 @@ export default function PearlDashboard() {
                   <div className="flex items-center justify-between mb-3">
                     <div>
                       <div className="text-xs text-zinc-500">盈亏平衡 PRL 价格</div>
-                      <div className="text-2xl font-bold text-zinc-100 mt-1">${breakevenPrice.toFixed(4)}</div>
+                      <div className={`text-3xl font-bold mt-1 ${prlPrice >= breakevenPrice ? "text-emerald-400" : "text-red-400"}`}>
+                        ${breakevenPrice.toFixed(4)}
+                      </div>
+                      <div className="text-xs text-zinc-600 mt-1">
+                        = 日成本 ${totalCostPerDay.toFixed(2)} ÷ 日产出 {myDailyPRL.toFixed(1)} PRL
+                      </div>
                     </div>
                     <div className={`w-12 h-12 rounded-full flex items-center justify-center ${prlPrice >= breakevenPrice ? "bg-emerald-500/20" : "bg-red-500/20"}`}>
                       {prlPrice >= breakevenPrice
@@ -451,7 +467,7 @@ export default function PearlDashboard() {
                       </linearGradient>
                     </defs>
                     <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
-                    <XAxis dataKey="price" type="number" domain={[0, 3]} stroke="#52525b" tick={{ fontSize: 10 }} tickFormatter={v => `$${v}`} tickCount={7} />
+                    <XAxis dataKey="price" type="number" domain={[0, 5]} stroke="#52525b" tick={{ fontSize: 10 }} tickFormatter={v => `$${v}`} tickCount={11} />
                     <YAxis stroke="#52525b" tick={{ fontSize: 10 }} tickFormatter={v => `$${v}`} />
                     <Tooltip
                       contentStyle={{ backgroundColor: "#18181b", border: "1px solid #3f3f46", borderRadius: "8px", fontSize: "12px" }}
@@ -462,7 +478,7 @@ export default function PearlDashboard() {
                     <ReferenceLine y={totalCostPerDay} stroke="#ef4444" strokeDasharray="5 3" strokeWidth={1.5}
                       label={{ value: `成本 $${totalCostPerDay.toFixed(2)}`, position: "insideTopRight", fontSize: 10, fill: "#ef4444" }} />
                     {/* 盈亏平衡价格竖线 */}
-                    {breakevenPrice > 0 && breakevenPrice <= 3 && (
+                    {breakevenPrice > 0 && breakevenPrice <= 5 && (
                       <ReferenceLine x={breakevenPrice} stroke="#8b5cf6" strokeDasharray="4 4" strokeWidth={1.5}
                         label={{ value: `盈亏 $${breakevenPrice.toFixed(3)}`, position: "insideTopLeft", fontSize: 10, fill: "#8b5cf6" }} />
                     )}
@@ -479,8 +495,19 @@ export default function PearlDashboard() {
         </div>
 
         {/* Footer */}
-        <div className="text-center text-xs text-zinc-600 pb-4">
-          数据来源: pearlhash.xyz · OTC价格仅供参考 · 不构成投资建议
+        <div className="flex flex-col items-center gap-2 pb-4">
+          <a
+            href="https://x.com/0x_JBCat"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-2 text-sm px-4 py-2 rounded-full border border-zinc-700 bg-zinc-900 text-zinc-400 hover:border-sky-500 hover:text-sky-400 transition-colors"
+          >
+            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.744l7.73-8.835L1.254 2.25H8.08l4.253 5.622 5.91-5.622zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+            关注 @0x_JBCat · 获取最新挖矿数据与 Pearl 动态
+          </a>
+          <div className="text-center text-xs text-zinc-600">
+            数据来源: pearlhash.xyz · OTC价格仅供参考 · 不构成投资建议
+          </div>
         </div>
       </div>
     </div>
