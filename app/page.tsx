@@ -141,6 +141,29 @@ export default function PearlDashboard() {
     return () => clearInterval(interval)
   }, [fetchPrlPrice])
 
+  // ---- LocalStorage persistence ----
+  // 挂载后从 localStorage 恢复（避免 SSR hydration mismatch）
+  useEffect(() => {
+    try {
+      const savedGpus = localStorage.getItem("pearl-gpus")
+      if (savedGpus) setGpus(JSON.parse(savedGpus))
+    } catch {}
+    try {
+      const savedPrice = localStorage.getItem("pearl-prl-price")
+      if (savedPrice) setPrlPrice(parseFloat(savedPrice))
+    } catch {}
+  }, []) // 仅挂载时执行一次
+
+  useEffect(() => {
+    try { localStorage.setItem("pearl-gpus", JSON.stringify(gpus)) } catch {}
+  }, [gpus])
+
+  useEffect(() => {
+    if (prlPriceSource === "manual") {
+      try { localStorage.setItem("pearl-prl-price", String(prlPrice)) } catch {}
+    }
+  }, [prlPrice, prlPriceSource])
+
   // ---- Calculations ----
   const totalMyHashrateTH = gpus.reduce((sum, g) => sum + g.hashrateTH * g.count, 0)
   const totalCostPerHour = gpus.reduce((sum, g) => sum + g.costPerHour * g.count, 0)
