@@ -52,6 +52,11 @@ function formatNumber(n: number, decimals = 2) {
 export default function PearlDashboard() {
   const [gpus, setGpus] = useState<GPU[]>(DEFAULT_GPUS)
   const [prlPrice, setPrlPrice] = useState<number>(0.95)
+  const [prlPriceSource, setPrlPriceSource] = useState<"live" | "manual">("manual")
+  const [prlPriceLoading, setPrlPriceLoading] = useState(false)
+  const [prlPriceUpdated, setPrlPriceUpdated] = useState("")
+  const [prlBestAsk, setPrlBestAsk] = useState<number | null>(null)
+  const [prlBestBid, setPrlBestBid] = useState<number | null>(null)
   const [network, setNetwork] = useState<NetworkStats>({
     totalHashrateTH: 20_788_858, // ~20.79 EH/s 全网算力（chain-info.networkhashps）
     poolHashrateTH: 4_999_568,   // ~5 PH/s 矿池算力
@@ -94,6 +99,38 @@ export default function PearlDashboard() {
     const interval = setInterval(fetchNetworkStats, 60000)
     return () => clearInterval(interval)
   }, [fetchNetworkStats])
+
+  // ---- Fetch PRL price from pearl-otc.com (no API key needed) ----
+  const fetchPrlPrice = useCallback(async () => {
+    setPrlPriceLoading(true)
+    try {
+      const res = await fetch("/api/prl-price")
+      if (res.ok) {
+        const data = await res.json()
+        if (data.bestAsk != null || data.bestBid != null) {
+          setPrlBestAsk(data.bestAsk)
+          setPrlBestBid(data.bestBid)
+          // 用 mid price 作为收益计算基准
+          const mid = data.bestAsk != null && data.bestBid != null
+            ? (data.bestAsk + data.bestBid) / 2
+            : (data.bestAsk ?? data.bestBid)
+          setPrlPrice(mid)
+          setPrlPriceSource("live")
+          setPrlPriceUpdated(new Date().toLocaleTimeString())
+        }
+      }
+    } catch {
+      // 保留当前价格
+    } finally {
+      setPrlPriceLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    fetchPrlPrice()
+    const interval = setInterval(fetchPrlPrice, 5 * 60 * 1000) // 每 5 分钟刷新
+    return () => clearInterval(interval)
+  }, [fetchPrlPrice])
 
   // ---- Calculations ----
   const totalMyHashrateTH = gpus.reduce((sum, g) => sum + g.hashrateTH * g.count, 0)
@@ -195,12 +232,6 @@ export default function PearlDashboard() {
               icon: <DollarSign className="w-4 h-4 text-yellow-400" />,
               sub: `${blocksPerDay.toFixed(0)} 块/天 · 在线矿工 ${network.totalWorkers?.toLocaleString() ?? "—"}`,
             },
-            {
-              label: "PRL 当前价格",
-              value: `$${prlPrice}`,
-              icon: <DollarSign className="w-4 h-4 text-blue-400" />,
-              sub: "OTC 参考价（手动输入）",
-            },
           ].map(item => (
             <Card key={item.label} className="bg-zinc-900 border-zinc-800">
               <CardContent className="pt-4 pb-4">
@@ -213,6 +244,60 @@ export default function PearlDashboard() {
               </CardContent>
             </Card>
           ))}
+
+          {/* PRL OTC Price Card */}
+          <Card className="bg-zinc-900 border-zinc-800">
+            <CardContent className="pt-4 pb-4">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs text-zinc-500">PRL 价格（OTC）</span>
+                <button
+                  onClick={fetchPrlPrice}
+                  disabled={prlPriceLoading}
+                  className="text-zinc-500 hover:text-zinc-300 transition-colors disabled:opacity-40"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${prlPriceLoading ? "animate-spin" : ""}`} />
+                </button>
+              </div>
+
+              {prlPriceLoading ? (
+                <div className="text-xl font-bold text-zinc-500">…</div>
+              ) : prlPriceSource === "live" ? (
+                <div className="flex items-center gap-3 mt-1">
+                  <div>
+                    <div className="text-[10px] text-emerald-500 mb-0.5">Bid</div>
+                    <div className="text-lg font-bold font-mono text-emerald-400">
+                      ${prlBestBid?.toFixed(4) ?? "—"}
+                    </div>
+                  </div>
+                  <div className="text-zinc-600 text-sm font-light">|</div>
+                  <div>
+                    <div className="text-[10px] text-red-400 mb-0.5">Ask</div>
+                    <div className="text-lg font-bold font-mono text-red-400">
+                      ${prlBestAsk?.toFixed(4) ?? "—"}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-xl font-bold">${prlPrice.toFixed(2)}</div>
+              )}
+
+              <div className="flex items-center gap-1 mt-2">
+                {prlPriceSource === "live" ? (
+                  <>
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    <span className="text-[10px] text-zinc-500">
+                      pearl-otc.com · {prlPriceUpdated}
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <span className="w-1.5 h-1.5 rounded-full bg-zinc-600" />
+                    <span className="text-[10px] text-zinc-500">手动输入</span>
+                  </>
+                )}
+              </div>
+            </CardContent>
+          </Card>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -223,26 +308,82 @@ export default function PearlDashboard() {
             {/* PRL Price Config */}
             <Card className="bg-zinc-900 border-zinc-800">
               <CardHeader className="pb-3">
-                <CardTitle className="text-sm text-zinc-300">参数配置</CardTitle>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-sm text-zinc-300">参数配置</CardTitle>
+                  {prlPriceSource === "live" ? (
+                    <span className="flex items-center gap-1 text-[10px] text-emerald-400">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                      pearl-otc.com 实时
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-1 text-[10px] text-zinc-500">
+                      <span className="w-1.5 h-1.5 rounded-full bg-zinc-500" />
+                      手动输入
+                    </span>
+                  )}
+                </div>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div>
-                  <Label className="text-xs text-zinc-400">PRL 价格 (USD)</Label>
-                  <div className="flex items-center gap-2 mt-1.5">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <Label className="text-xs text-zinc-400">PRL 计算价格 (USD)</Label>
+                    <button
+                      onClick={fetchPrlPrice}
+                      disabled={prlPriceLoading}
+                      className="flex items-center gap-1 text-[10px] text-zinc-500 hover:text-zinc-300 transition-colors disabled:opacity-40"
+                    >
+                      <RefreshCw className={`w-2.5 h-2.5 ${prlPriceLoading ? "animate-spin" : ""}`} />
+                      {prlPriceUpdated ? `${prlPriceUpdated}` : "刷新"}
+                    </button>
+                  </div>
+
+                  {/* Bid / Ask display */}
+                  {prlPriceSource === "live" && (
+                    <div className="flex gap-2 mb-2">
+                      <div className="flex-1 rounded bg-zinc-800 px-3 py-1.5 text-center">
+                        <div className="text-[10px] text-emerald-500 mb-0.5">Best Bid</div>
+                        <div className="text-sm font-mono font-semibold text-emerald-400">
+                          ${prlBestBid?.toFixed(4) ?? "—"}
+                        </div>
+                      </div>
+                      <div className="flex-1 rounded bg-zinc-800 px-3 py-1.5 text-center">
+                        <div className="text-[10px] text-red-400 mb-0.5">Best Ask</div>
+                        <div className="text-sm font-mono font-semibold text-red-400">
+                          ${prlBestAsk?.toFixed(4) ?? "—"}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="flex items-center gap-2">
                     <Input
                       type="number"
                       min="0"
                       step="0.01"
                       value={prlPrice}
-                      onChange={e => setPrlPrice(parseFloat(e.target.value) || 0)}
+                      onChange={e => {
+                        setPrlPrice(parseFloat(e.target.value) || 0)
+                        setPrlPriceSource("manual")
+                      }}
                       className="bg-zinc-800 border-zinc-700 text-zinc-100"
                     />
                     <div className="flex gap-1">
-                      {[0.5, 0.95, 1.5, 2].map(p => (
-                        <button key={p} onClick={() => setPrlPrice(p)} className={`text-xs px-2 py-1 rounded border transition-colors ${prlPrice === p ? "bg-violet-600 border-violet-500 text-white" : "border-zinc-700 text-zinc-400 hover:border-zinc-500"}`}>${p}</button>
+                      {[0.5, 1, 1.5, 2].map(p => (
+                        <button
+                          key={p}
+                          onClick={() => { setPrlPrice(p); setPrlPriceSource("manual") }}
+                          className={`text-xs px-2 py-1 rounded border transition-colors ${prlPrice === p ? "bg-violet-600 border-violet-500 text-white" : "border-zinc-700 text-zinc-400 hover:border-zinc-500"}`}
+                        >
+                          ${p}
+                        </button>
                       ))}
                     </div>
                   </div>
+                  <p className="text-[10px] text-zinc-600 mt-1.5">
+                    {prlPriceSource === "live"
+                      ? "收益按 mid price 计算 · 来源 pearl-otc.com"
+                      : "手动模式 · 点击刷新获取 OTC 实时报价"}
+                  </p>
                 </div>
               </CardContent>
             </Card>
