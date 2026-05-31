@@ -17,8 +17,11 @@ interface GPU {
 }
 
 interface NetworkStats {
-  totalHashrateTH: number   // 全网算力 TH/s（来自 chain-info.networkhashps）
-  poolHashrateTH: number    // 矿池算力 TH/s
+  totalHashrateTH: number
+  pool1HashrateTH: number
+  pool1Workers: number
+  pool2HashrateTH: number
+  pool2Workers: number
   blockRewardPRL: number
   blockTimeSeconds: number
   blockHeight: number
@@ -58,18 +61,21 @@ export default function PearlDashboard() {
   const [prlBestAsk, setPrlBestAsk] = useState<number | null>(null)
   const [prlBestBid, setPrlBestBid] = useState<number | null>(null)
   const [network, setNetwork] = useState<NetworkStats>({
-    totalHashrateTH: 20_788_858, // ~20.79 EH/s 全网算力（chain-info.networkhashps）
-    poolHashrateTH: 4_999_568,   // ~5 PH/s 矿池算力
-    blockRewardPRL: 2686,
-    blockTimeSeconds: 102.62,    // 实测均值（非目标值194s）
-    blockHeight: 62775,
-    totalWorkers: null,
+    totalHashrateTH: 23_830_000,
+    pool1HashrateTH: 9_068_327,
+    pool1Workers: 36492,
+    pool2HashrateTH: 4_680_000,
+    pool2Workers: 34111,
+    blockRewardPRL: 2670,
+    blockTimeSeconds: 110,
+    blockHeight: 64887,
+    totalWorkers: 70603,
     loading: false,
     lastUpdated: "",
   })
   const [newGpu, setNewGpu] = useState({ name: "", hashrateTH: "", costPerHour: "", count: "1" })
 
-  // ---- Fetch network stats from pearlhash.xyz ----
+  // ---- Fetch network stats ----
   const fetchNetworkStats = useCallback(async () => {
     setNetwork(prev => ({ ...prev, loading: true }))
     try {
@@ -78,11 +84,14 @@ export default function PearlDashboard() {
         const data = await res.json()
         setNetwork({
           totalHashrateTH: data.totalHashrateTH,
-          poolHashrateTH: data.poolHashrateTH ?? 0,
-          blockRewardPRL: data.blockRewardPRL,
+          pool1HashrateTH: data.pool1HashrateTH ?? 0,
+          pool1Workers:    data.pool1Workers ?? 0,
+          pool2HashrateTH: data.pool2HashrateTH ?? 0,
+          pool2Workers:    data.pool2Workers ?? 0,
+          blockRewardPRL:  data.blockRewardPRL,
           blockTimeSeconds: data.blockTimeSeconds,
-          blockHeight: data.blockHeight ?? 0,
-          totalWorkers: data.totalWorkers ?? null,
+          blockHeight:     data.blockHeight ?? 0,
+          totalWorkers:    data.totalWorkers ?? null,
           loading: false,
           lastUpdated: new Date().toLocaleTimeString(),
         })
@@ -213,13 +222,51 @@ export default function PearlDashboard() {
 
         {/* Network Stats */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+
+          {/* 全网算力 + 双矿池 */}
+          <Card className="bg-zinc-900 border-zinc-800">
+            <CardContent className="pt-4 pb-4">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs text-zinc-500">全网算力</span>
+                <Zap className="w-4 h-4 text-violet-400" />
+              </div>
+              <div className="text-xl font-bold">
+                {(network.totalHashrateTH / 1e6).toFixed(2)} EH/s
+              </div>
+              <div className="mt-2 space-y-1">
+                <a href="https://pearlhash.xyz/" target="_blank" rel="noopener noreferrer"
+                  className="flex items-center justify-between group">
+                  <span className="text-[10px] text-zinc-500 group-hover:text-violet-400 transition-colors underline decoration-dotted">
+                    pearlhash.xyz
+                  </span>
+                  <span className="text-[10px] text-zinc-400">
+                    {(network.pool1HashrateTH / 1e6).toFixed(2)} EH/s
+                    <span className="text-zinc-600 ml-1">
+                      {network.totalHashrateTH > 0
+                        ? `${((network.pool1HashrateTH / network.totalHashrateTH) * 100).toFixed(1)}%`
+                        : "—"}
+                    </span>
+                  </span>
+                </a>
+                <a href="https://pearl.alphapool.tech/" target="_blank" rel="noopener noreferrer"
+                  className="flex items-center justify-between group">
+                  <span className="text-[10px] text-zinc-500 group-hover:text-violet-400 transition-colors underline decoration-dotted">
+                    alphapool.tech
+                  </span>
+                  <span className="text-[10px] text-zinc-400">
+                    {(network.pool2HashrateTH / 1e6).toFixed(2)} EH/s
+                    <span className="text-zinc-600 ml-1">
+                      {network.totalHashrateTH > 0
+                        ? `${((network.pool2HashrateTH / network.totalHashrateTH) * 100).toFixed(1)}%`
+                        : "—"}
+                    </span>
+                  </span>
+                </a>
+              </div>
+            </CardContent>
+          </Card>
+
           {[
-            {
-              label: "全网算力",
-              value: `${(network.totalHashrateTH / 1e6).toFixed(2)} EH/s`,
-              icon: <Zap className="w-4 h-4 text-violet-400" />,
-              sub: `矿池 ${(network.poolHashrateTH / 1e6).toFixed(2)} EH/s · ${network.totalHashrateTH > 0 ? ((network.poolHashrateTH / network.totalHashrateTH) * 100).toFixed(1) : "—"}% 占比`,
-            },
             {
               label: "区块高度 / 奖励",
               value: `${network.blockRewardPRL.toFixed(0)} PRL`,
